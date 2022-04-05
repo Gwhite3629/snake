@@ -6,6 +6,8 @@
 #include "snake.h"
 #include "bitmap.h"
 
+struct termios def;
+
 void input(atomic_bool *wait, direction_t *dir)
 {
     char c;
@@ -17,7 +19,7 @@ void input(atomic_bool *wait, direction_t *dir)
                 break;
             case 's':
                 (*dir) = DOWN;
-                 break;
+                break;
             case 'd':
                 (*dir) = RIGHT;
                 break;
@@ -28,136 +30,124 @@ void input(atomic_bool *wait, direction_t *dir)
                 break;
         }
     }
+    while((*wait));
 }
 
-void shift_snake(node_t *snake, board_t *board)
+void shift_snake(atomic_bool *exit_game, board_t *board, direction_t dir)
 {
-    node_t *p = snake;
-    direction_t d = snake->direction;
-    while (p) {
-        p->direction = d;
-        clear_bit(board->board,((p->location.y*(board->width))+p->location.x));
-        switch(d = p->direction) {
-            case UP:
-                p->location.y++;
-                if (p->location.y >= board->height)
-                    p->location.y = 0;
-                break;
-            case DOWN:
-                p->location.y--;
-                if (p->location.y < 0)
-                    p->location.y = board->height-1;
-                break;
-            case RIGHT:
-                p->location.x++;
-                if (p->location.x >= board->width)
-                    p->location.x = 0;
-                break;
-            case LEFT:
-                p->location.x--;
-                if (p->location.y < 0)
-                    p->location.x = board->width-1;
-                break;
-        }
-        set_bit(board->board,((p->location.y*(board->width))+p->location.x));
-        p = p->next;
+    switch (dir) {
+        case UP:
+            if (board->prev == DOWN) dir = DOWN;
+            break;
+        case DOWN:
+            if (board->prev == UP) dir = UP;
+            break;
+        case RIGHT:
+            if (board->prev == LEFT) dir = LEFT;
+            break;
+        case LEFT:
+            if (board->prev == RIGHT) dir = RIGHT;
+            break;
     }
-    clear_bit(board->board, ((snake->location.y*(board->width))+snake->location.x)); // Clear head bit
-}
+    board->prev = dir;
 
-int update(atomic_bool *exit_game, node_t *snake, board_t *board, direction_t dir)
-{
-    int ret = 0;
+    clear_bit(board->board, (((board->segments[board->size-1].y)*board->width)+board->segments[board->size-1].x));
 
     switch (dir) {
         case UP:
-            if (snake->direction == DOWN) break;
-            snake->direction = dir;
+            if (board->head.y+1 >= board->height) board->head.y = 0;
+            else board->head.y++;
+            if (get_bit(board->board, (((board->head.y+1)*(board->width))+board->head.x))) (*exit_game) = 1;
             break;
         case DOWN:
-            if (snake->direction == UP) break;
-            snake->direction = dir;
+            if (board->head.y-1 < 0) board->head.y = board->height-1;
+            else board->head.y--;
+            if (get_bit(board->board, (((board->head.y-1)*(board->width))+board->head.x))) (*exit_game) = 1;
             break;
         case RIGHT:
-            if (snake->direction == RIGHT) break;
-            snake->direction = dir;
+            if (board->head.x+1 >= board->width) board->head.x = 0;
+            else board->head.x++;
+            if (get_bit(board->board, (((board->head.y)*(board->width))+board->head.x+1))) (*exit_game) = 1;
             break;
         case LEFT:
-            if (snake->direction == LEFT) break;
-            snake->direction = dir;
+            if (board->head.x-1 < 0) board->head.x = board->width-1;
+            else board->head.x--;
+            if (get_bit(board->board, (((board->head.y)*(board->width))+board->head.x-1))) (*exit_game) = 1;
             break;
     }
-    shift_snake(snake, board);
-    ret = check_food(snake, board);
-    if (ret != 0) goto exit;
-    check_collision(exit_game, snake, board);
 
-exit:
+    for (int i = board->size; i > 0; i--) {
+        board->segments[i] = board->segments[i - 1];
+    }
+
+    board->segments[0].x = board->head.x;
+    board->segments[0].y = board->head.y;
+
+    //board->segments[board->size].x = 0;
+    //board->segments[board->size].y = 0;
+
+    set_bit(board->board, ((board->head.y*(board->width))+board->head.x));
+}
+
+int update(atomic_bool *exit_game, board_t *board, direction_t dir)
+{
+    int ret = 0;
+    shift_snake(exit_game, board, dir);
+    ret = check_food(exit_game, board);
+
     return ret;
 }
 
-int check_food(node_t *snake, board_t *board)
+int check_food(atomic_bool *exit_game, board_t *board)
 {
     int ret = 0;
-    set_bit(board->board, ((snake->location.y*(board->width))+snake->location.x)); // Temp set head bit
     if (get_bit(board->board, ((board->food.y*(board->width))+board->food.x))) {
-        ret = grow_snake(snake, board);
+        grow_snake(exit_game, board);
         if (ret != 0) goto exit;
         ret = spawn_food(board);
         if (ret != 0) goto exit;
     }
-    clear_bit(board->board, ((snake->location.y*(board->width))+snake->location.x)); // Clear head bit
 
 exit:
     return ret;
 }
 
-void check_collision(atomic_bool *exit_game, node_t *snake, board_t *board)
+void grow_snake(atomic_bool *exit_game, board_t *board)
 {
-    if (get_bit(board->board, ((snake->location.y*(board->width))+snake->location.x)))
-        (*exit_game) = 1;
-    else
-        set_bit(board->board, ((snake->location.y*(board->width))+snake->location.x)); // Set head bit
-}
 
-int grow_snake(node_t *snake, board_t *board)
-{
-    int ret = 0;
-    node_t *p = snake;
-    coordinate_t c;
+    board->size++;
 
-    while (p) {
-        node_t *p = snake->next;;
-        switch(p->direction) {
-            case UP:
-                c.y = p->location.y-1;
-                c.x = p->location.x;
-                if (c.y < 0)
-                    c.y = board->height-1;
-                break;
-            case DOWN:
-                c.y = p->location.y+1;
-                if (c.y >= board->height)
-                    c.y = 0;
-                break;
-            case RIGHT:
-                c.x = p->location.x-1;
-                c.y = p->location.y;
-                if (c.x < 0)
-                    c.x = board->width-1;
-                break;
-            case LEFT:
-                c.x = p->location.x+1;
-                c.y = p->location.y;
-                if (c.x >= board->width)
-                    c.x = 0;
-                break;
-        }
+    switch (board->prev) {
+        case UP:
+            if (board->head.y+1 >= board->height) board->head.y = 0;
+            else board->head.y++;
+            if (get_bit(board->board, (((board->head.y+1)*(board->width))+board->head.x))) (*exit_game) = 1;
+            break;
+        case DOWN:
+            if (board->head.y-1 < 0) board->head.y = board->height-1;
+            else board->head.y--;
+            if (get_bit(board->board, (((board->head.y-1)*(board->width))+board->head.x))) (*exit_game) = 1;
+            break;
+        case RIGHT:
+            if (board->head.x+1 >= board->width) board->head.x = 0;
+            else board->head.x++;
+            if (get_bit(board->board, (((board->head.y)*(board->width))+board->head.x+1))) (*exit_game) = 1;
+            break;
+        case LEFT:
+            if (board->head.x-1 < 0) board->head.x = board->width-1;
+            else board->head.x--;
+            if (get_bit(board->board, (((board->head.y)*(board->width))+board->head.x-1))) (*exit_game) = 1;
+            break;
     }
-    set_bit(board->board, ((c.y*(board->width))+c.x));
-    ret = insert(p, c, p->direction);
 
-    return ret;
+    for (int i = board->size; i > 0; i--) {
+        board->segments[i] = board->segments[i - 1];
+    }
+
+    set_bit(board->board, ((board->head.y*(board->width))+board->head.x));
+
+    board->segments[0].x = board->head.x;
+    board->segments[0].y = board->head.y;
 }
 
 int spawn_food(board_t *board)
@@ -194,55 +184,47 @@ exit:
     return ret;
 }
 
+void editorRefreshScreen(void) {
+    write(STDOUT_FILENO, "\x1b[2J", 4);
+}
+
 void draw_board(board_t board)
 {
-    // fflush(stdout);
+    editorRefreshScreen();
     char c;
-    printf("\n");
+    printf("\n|");
+    for (int i = 0; i < board.width; i++) {
+        printf("-");
+    }
+    printf("|\n");
     for (int i = board.width-1; i >= 0; i--) {
+        printf("|");
         for (int j = 0; j < board.height; j++) {
             if ((board.food.x == j) & (board.food.y == i))
                 c = '0';
             else
-                c = (get_bit(board.board, ((i*(board.width))+j))) ? 's': '*';
+                c = (get_bit(board.board, ((i*(board.width))+j))) ? 's': ' ';
             printf("%c", c);
         }
-        printf("\n");
+        printf("|\n");
     }
 }
 
-int insert(node_t *list, coordinate_t location, direction_t dir)
+void disableRaw(void)
 {
-    int ret = 0;
-    node_t *next;
-    next = (node_t *)malloc(sizeof(node_t));
-    if (next == NULL) {
-        perror("Allocation error");
-        ret = -1;
-        goto exit;
-    }
-    next->direction = dir;
-    next->location = location;
-    next->next = NULL;
-    list->next = next;
-exit:
-    return ret;
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &def);
 }
 
-void freeList(node_t *list)
+void enableRaw(void)
 {
-   node_t *temp;
+    tcgetattr(STDIN_FILENO, &def);
+    atexit(disableRaw);
 
-   while (list != NULL)
-    {
-       temp = list;
-       list = list->next;
-       free(temp);
-    }
+    struct termios raw = def;
+    raw.c_lflag &= ~(ECHO | ICANON);
 
-}
+    raw.c_cc[VMIN] = 0;
+    raw.c_cc[VTIME] = 0;
 
-void enableRaw()
-{
-    struct termios
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }

@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdatomic.h>
+#include <stdbool.h>
 
 typedef enum {UP,DOWN,RIGHT,LEFT} direction_t;
 typedef char* bitmap_t;
@@ -14,33 +15,28 @@ typedef struct board {
     uint8_t width;
     uint8_t height;
     coordinate_t food;
+    coordinate_t head;
+    coordinate_t *segments;
+    uint16_t size;
+    direction_t prev;
 } board_t;
 
-typedef struct node {
-    coordinate_t location;
-    direction_t direction;
-    int key;
-    struct node *next;
-} node_t;
+void shift_snake(atomic_bool *exit_game, board_t *board, direction_t dir);
 
-int insert(node_t *list, coordinate_t location, direction_t dir);
-
-// void delete(node_t *list, int key);
-
-void freeList(node_t *list);
-
-void shift_snake(node_t *snake, board_t *board);
-
-int update(atomic_bool *exit_game, node_t *snake, board_t *board, direction_t dir);
+int update(atomic_bool *exit_game, board_t *board, direction_t dir);
 
 void input(atomic_bool *wait, direction_t *dir);
 
-int check_food(node_t *snake, board_t *board);
+int check_food(atomic_bool *exit_game, board_t *board);
 
-int grow_snake(node_t *snake, board_t *board);
+void grow_snake(atomic_bool *exit_game, board_t *board);
 
 int spawn_food(board_t *board);
 
-void check_collision(atomic_bool *exit_game, node_t *snake, board_t *board);
-
 void draw_board(board_t board);
+
+void editorRefreshScreen(void);
+
+void disableRaw(void);
+
+void enableRaw(void);

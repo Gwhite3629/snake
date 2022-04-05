@@ -5,7 +5,7 @@ TARGET2=test
 OBJSgame=runtime.o snake.o
 OBJStest=test.o snake.o
 LIBS=-pthread
-CFLAGS=-g -Wall -Wextra
+CFLAGS=-O3 -Wall -Wextra
 
 all: ${TARGET1} ${TARGET2}
 
